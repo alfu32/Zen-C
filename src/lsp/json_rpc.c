@@ -162,6 +162,12 @@ void lsp_check_file(const char *uri, const char *src);
 void lsp_goto_definition(const char *id, const char *uri, int line, int col);
 void lsp_hover(const char *id, const char *uri, int line, int col);
 void lsp_completion(const char *id, const char *uri, int line, int col);
+void lsp_references(const char *id, const char *uri, int line, int col, int include_decl);
+
+static int get_json_include_declaration(const char *json)
+{
+    return strstr(json, "\"includeDeclaration\":true") != NULL;
+}
 
 void handle_request(const char *json_str)
 {
@@ -179,6 +185,7 @@ void handle_request(const char *json_str)
                  "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{"
                  "\"capabilities\":{\"textDocumentSync\":1,"
                  "\"definitionProvider\":true,\"hoverProvider\":true,"
+                 "\"referencesProvider\":true,"
                  "\"completionProvider\":{\"triggerCharacters\":[\".\"]}}}}",
                  id_raw);
         free(id_raw);
@@ -267,6 +274,30 @@ void handle_request(const char *json_str)
         {
             fprintf(stderr, "zls: Completion request at %d:%d\n", line, col);
             lsp_completion(id_raw, uri, line, col);
+        }
+
+        if (id_raw)
+        {
+            free(id_raw);
+        }
+        if (uri)
+        {
+            free(uri);
+        }
+    }
+
+    if (strstr(json_str, "\"method\":\"textDocument/references\""))
+    {
+        char *id_raw = get_json_id_raw(json_str);
+        char *uri = get_json_string(json_str, "uri");
+        int line = 0, col = 0;
+        int include_decl = get_json_include_declaration(json_str);
+        get_json_position(json_str, &line, &col);
+
+        if (id_raw && uri)
+        {
+            fprintf(stderr, "zls: References request at %d:%d\n", line, col);
+            lsp_references(id_raw, uri, line, col, include_decl);
         }
 
         if (id_raw)

@@ -3144,6 +3144,10 @@ ASTNode *parse_expr_prec(ParserContext *ctx, Lexer *l, Precedence min_prec)
                         ft->name = xstrdup(mangled);
                         ft->inner = sig->ret_type; // Return type
                         node->type_info = ft;
+                        if (sig->decl_token.line > 0)
+                        {
+                            node->definition_token = sig->decl_token;
+                        }
                     }
                 }
             }

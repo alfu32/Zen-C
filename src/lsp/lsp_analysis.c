@@ -626,3 +626,92 @@ void lsp_completion(const char *id, const char *uri, int line, int col)
     fflush(stdout);
     free(json);
 }
+
+void lsp_references(const char *id, const char *uri, int line, int col, int include_decl)
+{
+    if (!g_index)
+    {
+        char empty_resp[256];
+        snprintf(empty_resp, sizeof(empty_resp),
+                 "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":[]}", id);
+        fprintf(stderr, "zls: Responding (references) id=%s empty\n", id);
+        fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(empty_resp), empty_resp);
+        fflush(stdout);
+        return;
+    }
+
+    LSPRange *target = NULL;
+    LSPRange *r = lsp_find_at(g_index, line, col);
+    if (r)
+    {
+        if (r->type == RANGE_REFERENCE)
+        {
+            target = lsp_find_definition_at(g_index, r->def_line, r->def_col);
+        }
+        else if (r->type == RANGE_DEFINITION)
+        {
+            target = r;
+        }
+    }
+
+    if (!target)
+    {
+        char *name = lsp_identifier_at(line, col);
+        if (name)
+        {
+            target = lsp_find_definition_by_name(g_index, name);
+            free(name);
+        }
+    }
+
+    if (!target)
+    {
+        char empty_resp[256];
+        snprintf(empty_resp, sizeof(empty_resp),
+                 "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":[]}", id);
+        fprintf(stderr, "zls: Responding (references) id=%s empty\n", id);
+        fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(empty_resp), empty_resp);
+        fflush(stdout);
+        return;
+    }
+
+    char *json = xmalloc(1024 * 1024);
+    char *p = json;
+    p += sprintf(p, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":[", id);
+
+    int first = 1;
+    if (include_decl)
+    {
+        p += sprintf(p,
+                     "{\"uri\":\"%s\",\"range\":{\"start\":{\"line\":%d,\"character\":%d},"
+                     "\"end\":{\"line\":%d,\"character\":%d}}}",
+                     uri, target->start_line, target->start_col, target->end_line,
+                     target->end_col);
+        first = 0;
+    }
+
+    LSPRange *cur = g_index->head;
+    while (cur)
+    {
+        if (cur->type == RANGE_REFERENCE && cur->def_line == target->start_line &&
+            cur->def_col == target->start_col)
+        {
+            if (!first)
+            {
+                p += sprintf(p, ",");
+            }
+            p += sprintf(p,
+                         "{\"uri\":\"%s\",\"range\":{\"start\":{\"line\":%d,\"character\":%d},"
+                         "\"end\":{\"line\":%d,\"character\":%d}}}",
+                         uri, cur->start_line, cur->start_col, cur->end_line, cur->end_col);
+            first = 0;
+        }
+        cur = cur->next;
+    }
+
+    p += sprintf(p, "]}");
+    fprintf(stderr, "zls: Responding (references) id=%s\n", id);
+    fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(json), json);
+    fflush(stdout);
+    free(json);
+}

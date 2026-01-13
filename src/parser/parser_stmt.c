@@ -2807,6 +2807,7 @@ ASTNode *parse_trait(ParserContext *ctx, Lexer *l)
         {
             lexer_next(l);
             ASTNode *m = ast_create(NODE_FUNCTION);
+            m->token = mn;
             m->func.param_names = param_names;
             m->func.name = mname;
             m->func.args = args;
