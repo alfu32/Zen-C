@@ -152,6 +152,7 @@ typedef struct EnumVariantReg
     char *enum_name;
     char *variant_name;
     int tag_id;
+    Token decl_token;
     struct EnumVariantReg *next;
 } EnumVariantReg;
 
@@ -341,7 +342,8 @@ ASTNode *copy_ast_replacing(ASTNode *n, const char *p, const char *c, const char
 char *extract_module_name(const char *path);
 
 // Enum helpers
-void register_enum_variant(ParserContext *ctx, const char *ename, const char *vname, int tag);
+void register_enum_variant(ParserContext *ctx, const char *ename, const char *vname, int tag,
+                           Token decl_token);
 EnumVariantReg *find_enum_variant(ParserContext *ctx, const char *vname);
 
 // Lambda helpers

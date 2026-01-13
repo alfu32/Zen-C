@@ -3178,19 +3178,20 @@ ASTNode *parse_struct(ParserContext *ctx, Lexer *l, int is_union)
     if (lexer_peek(l).type == TOK_SEMICOLON)
     {
         lexer_next(l);
-        ASTNode *n = ast_create(NODE_STRUCT);
-        n->strct.name = name;
-        n->strct.is_template = (gp != NULL);
-        n->strct.generic_param = gp;
-        n->strct.is_union = is_union;
-        n->strct.fields = NULL;
-        n->strct.is_incomplete = 1;
+        ASTNode *node = ast_create(NODE_STRUCT);
+        node->token = n;
+        node->strct.name = name;
+        node->strct.is_template = (gp != NULL);
+        node->strct.generic_param = gp;
+        node->strct.is_union = is_union;
+        node->strct.fields = NULL;
+        node->strct.is_incomplete = 1;
 
         if (!gp)
         {
-            add_to_struct_list(ctx, n);
+            add_to_struct_list(ctx, node);
         }
-        return n;
+        return node;
     }
 
     lexer_next(l); // eat {
@@ -3273,6 +3274,7 @@ ASTNode *parse_struct(ParserContext *ctx, Lexer *l, int is_union)
             char *f_type = parse_type(ctx, l);
 
             ASTNode *f = ast_create(NODE_FIELD);
+            f->token = f_name;
             f->field.name = token_strdup(f_name);
             f->field.type = f_type;
             f->field.bit_width = 0;
@@ -3311,6 +3313,7 @@ ASTNode *parse_struct(ParserContext *ctx, Lexer *l, int is_union)
     }
 
     ASTNode *node = ast_create(NODE_STRUCT);
+    node->token = n;
     add_to_struct_list(ctx, node);
 
     // Auto-prefix struct name if in module context
@@ -3427,6 +3430,7 @@ ASTNode *parse_enum(ParserContext *ctx, Lexer *l)
             }
 
             ASTNode *va = ast_create(NODE_ENUM_VARIANT);
+            va->token = vt;
             va->variant.name = vname;
             va->variant.tag_id = v++;      // Use tag_id instead of value
             va->variant.payload = payload; // Store Type*
@@ -3434,7 +3438,7 @@ ASTNode *parse_enum(ParserContext *ctx, Lexer *l)
             // Register Variant (Mangled name to avoid collisions: Result_Ok)
             char mangled[256];
             sprintf(mangled, "%s_%s", ename, vname);
-            register_enum_variant(ctx, ename, mangled, va->variant.tag_id);
+            register_enum_variant(ctx, ename, mangled, va->variant.tag_id, vt);
 
             // Handle explicit assignment: Ok = 5
             if (lexer_peek(l).type == TOK_OP && *lexer_peek(l).start == '=')
@@ -3470,6 +3474,7 @@ ASTNode *parse_enum(ParserContext *ctx, Lexer *l)
     }
 
     ASTNode *node = ast_create(NODE_ENUM);
+    node->token = n;
     node->enm.name = ename;
 
     node->enm.variants = h;

@@ -151,6 +151,7 @@ void lsp_goto_definition(const char *id, const char *uri, int line, int col)
                 "d}}}}",
                 id, uri, r->def_line, r->def_col, r->def_line, r->def_col);
 
+        fprintf(stderr, "zls: Responding (definition) id=%s\n", id);
         fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(resp), resp);
         fflush(stdout);
     }
@@ -165,6 +166,7 @@ void lsp_goto_definition(const char *id, const char *uri, int line, int col)
                 "d}}}}",
                 id, uri, r->start_line, r->start_col, r->end_line, r->end_col);
 
+        fprintf(stderr, "zls: Responding (definition) id=%s\n", id);
         fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(resp), resp);
         fflush(stdout);
     }
@@ -174,6 +176,7 @@ void lsp_goto_definition(const char *id, const char *uri, int line, int col)
         char null_resp[256];
         snprintf(null_resp, sizeof(null_resp), "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":null}",
                  id);
+        fprintf(stderr, "zls: Responding (definition) id=%s null\n", id);
         fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(null_resp), null_resp);
         fflush(stdout);
     }
@@ -215,6 +218,7 @@ void lsp_hover(const char *id, const char *uri, int line, int col)
                 "\"value\":\"```c\\n%s\\n```\"}}}",
                 id, text);
 
+        fprintf(stderr, "zls: Responding (hover) id=%s\n", id);
         fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(json), json);
         fflush(stdout);
         free(json);
@@ -224,6 +228,7 @@ void lsp_hover(const char *id, const char *uri, int line, int col)
         char null_resp[256];
         snprintf(null_resp, sizeof(null_resp), "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":null}",
                  id);
+        fprintf(stderr, "zls: Responding (hover) id=%s null\n", id);
         fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(null_resp), null_resp);
         fflush(stdout);
     }
@@ -237,6 +242,7 @@ void lsp_completion(const char *id, const char *uri, int line, int col)
         char null_resp[256];
         snprintf(null_resp, sizeof(null_resp), "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":[]}",
                  id);
+        fprintf(stderr, "zls: Responding (completion) id=%s empty\n", id);
         fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(null_resp), null_resp);
         fflush(stdout);
         return;
@@ -346,6 +352,7 @@ void lsp_completion(const char *id, const char *uri, int line, int col)
                                 }
 
                                 pj += sprintf(pj, "]}");
+                                fprintf(stderr, "zls: Responding (completion) id=%s\n", id);
                                 fprintf(stdout, "Content-Length: %ld\r\n\r\n%s",
                                         strlen(json_fields), json_fields);
                                 fflush(stdout);
@@ -397,6 +404,7 @@ void lsp_completion(const char *id, const char *uri, int line, int col)
 
     p += sprintf(p, "]}");
 
+    fprintf(stderr, "zls: Responding (completion) id=%s\n", id);
     fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(json), json);
     fflush(stdout);
     free(json);

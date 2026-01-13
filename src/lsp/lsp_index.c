@@ -122,11 +122,72 @@ void lsp_walk_node(LSPIndex *idx, ASTNode *node)
     }
 
     // Definition logic.
-    if (node->type == NODE_FUNCTION)
+    if (node->type == NODE_STRUCT)
+    {
+        if (node->strct.name)
+        {
+            char hover[256];
+            snprintf(hover, sizeof(hover), "struct %s", node->strct.name);
+            lsp_index_add_def(idx, node->token, hover, node);
+        }
+
+        ASTNode *field = node->strct.fields;
+        while (field)
+        {
+            if (field->type == NODE_FIELD && field->field.name)
+            {
+                char hover[256];
+                if (field->field.type)
+                {
+                    snprintf(hover, sizeof(hover), "field %s: %s", field->field.name,
+                             field->field.type);
+                }
+                else
+                {
+                    snprintf(hover, sizeof(hover), "field %s", field->field.name);
+                }
+                lsp_index_add_def(idx, field->token, hover, field);
+            }
+            field = field->next;
+        }
+    }
+    else if (node->type == NODE_ENUM)
+    {
+        if (node->enm.name)
+        {
+            char hover[256];
+            snprintf(hover, sizeof(hover), "enum %s", node->enm.name);
+            lsp_index_add_def(idx, node->token, hover, node);
+        }
+
+        ASTNode *variant = node->enm.variants;
+        while (variant)
+        {
+            if (variant->type == NODE_ENUM_VARIANT && variant->variant.name)
+            {
+                char hover[256];
+                if (variant->variant.payload)
+                {
+                    char *payload = type_to_string(variant->variant.payload);
+                    snprintf(hover, sizeof(hover), "variant %s::%s(%s)", node->enm.name,
+                             variant->variant.name, payload ? payload : "?");
+                    free(payload);
+                }
+                else
+                {
+                    snprintf(hover, sizeof(hover), "variant %s::%s", node->enm.name,
+                             variant->variant.name);
+                }
+                lsp_index_add_def(idx, variant->token, hover, variant);
+            }
+            variant = variant->next;
+        }
+    }
+    else if (node->type == NODE_FUNCTION)
     {
         char hover[256];
-        sprintf(hover, "fn %s(...) -> %s", node->func.name,
-                node->func.ret_type ? node->func.ret_type : "void");
+        snprintf(hover, sizeof(hover), "fn %s(...) -> %s", node->func.name,
+                 node->func.ret_type ? node->func.ret_type : "void");
         lsp_index_add_def(idx, node->token, hover, node);
 
         // Recurse body.
@@ -135,7 +196,7 @@ void lsp_walk_node(LSPIndex *idx, ASTNode *node)
     else if (node->type == NODE_VAR_DECL)
     {
         char hover[256];
-        sprintf(hover, "var %s", node->var_decl.name);
+        snprintf(hover, sizeof(hover), "var %s", node->var_decl.name);
         lsp_index_add_def(idx, node->token, hover, node);
 
         lsp_walk_node(idx, node->var_decl.init_expr);
@@ -143,7 +204,7 @@ void lsp_walk_node(LSPIndex *idx, ASTNode *node)
     else if (node->type == NODE_CONST)
     {
         char hover[256];
-        sprintf(hover, "const %s", node->var_decl.name);
+        snprintf(hover, sizeof(hover), "const %s", node->var_decl.name);
         lsp_index_add_def(idx, node->token, hover, node);
 
         lsp_walk_node(idx, node->var_decl.init_expr);

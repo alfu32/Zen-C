@@ -481,12 +481,14 @@ void add_instantiated_func(ParserContext *ctx, ASTNode *fn)
     ctx->instantiated_funcs = fn;
 }
 
-void register_enum_variant(ParserContext *ctx, const char *ename, const char *vname, int tag)
+void register_enum_variant(ParserContext *ctx, const char *ename, const char *vname, int tag,
+                           Token decl_token)
 {
     EnumVariantReg *r = xmalloc(sizeof(EnumVariantReg));
     r->enum_name = xstrdup(ename);
     r->variant_name = xstrdup(vname);
     r->tag_id = tag;
+    r->decl_token = decl_token;
     r->next = ctx->enum_variants;
     ctx->enum_variants = r;
 }
@@ -1904,13 +1906,14 @@ void instantiate_generic(ParserContext *ctx, const char *tpl, const char *arg)
         while (v)
         {
             ASTNode *nv = ast_create(NODE_ENUM_VARIANT);
+            nv->token = v->token;
             nv->variant.name = xstrdup(v->variant.name);
             nv->variant.tag_id = v->variant.tag_id;
             nv->variant.payload = replace_type_formal(
                 v->variant.payload, t->struct_node->enm.generic_param, arg, NULL, NULL);
             char mangled_var[512];
             sprintf(mangled_var, "%s_%s", m, nv->variant.name);
-            register_enum_variant(ctx, m, mangled_var, nv->variant.tag_id);
+            register_enum_variant(ctx, m, mangled_var, nv->variant.tag_id, nv->token);
             if (!h)
             {
                 h = nv;

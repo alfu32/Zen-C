@@ -8,6 +8,80 @@
 
 Type *get_field_type(ParserContext *ctx, Type *struct_type, const char *field_name);
 
+static Token find_struct_field_token(ParserContext *ctx, Type *type_info, const char *field_name)
+{
+    Token none = {0};
+    if (!type_info || !field_name)
+    {
+        return none;
+    }
+
+    Type *base = type_info;
+    if (base->kind == TYPE_POINTER && base->inner)
+    {
+        base = base->inner;
+    }
+
+    if (base->kind != TYPE_STRUCT || !base->name)
+    {
+        return none;
+    }
+
+    ASTNode *def = find_struct_def(ctx, base->name);
+    if (!def)
+    {
+        return none;
+    }
+
+    ASTNode *field = def->strct.fields;
+    while (field)
+    {
+        if (field->type == NODE_FIELD && field->field.name &&
+            strcmp(field->field.name, field_name) == 0)
+        {
+            return field->token;
+        }
+        field = field->next;
+    }
+
+    return none;
+}
+
+static void set_member_definition_token(ParserContext *ctx, ASTNode *node, ASTNode *lhs,
+                                        const char *field_name)
+{
+    if (!node || !field_name)
+    {
+        return;
+    }
+
+    Type *type_info = lhs ? lhs->type_info : NULL;
+    if (!type_info && lhs && lhs->type == NODE_EXPR_VAR)
+    {
+        type_info = find_symbol_type_info(ctx, lhs->var_ref.name);
+    }
+
+    Token def = find_struct_field_token(ctx, type_info, field_name);
+    if (def.line > 0)
+    {
+        node->definition_token = def;
+    }
+}
+
+static void set_enum_variant_definition(ParserContext *ctx, ASTNode *node, const char *name)
+{
+    if (!node || !name)
+    {
+        return;
+    }
+
+    EnumVariantReg *variant = find_enum_variant(ctx, name);
+    if (variant && variant->decl_token.line > 0)
+    {
+        node->definition_token = variant->decl_token;
+    }
+}
+
 static int type_is_unsigned(Type *t)
 {
     if (!t)
@@ -1189,6 +1263,7 @@ ASTNode *parse_primary(ParserContext *ctx, Lexer *l)
 
     else if (t.type == TOK_IDENT)
     {
+        Token ident_tok = t;
         if (t.len == 2 && strncmp(t.start, "fn", 2) == 0 && lexer_peek(l).type == TOK_LPAREN)
         {
             l->pos -= t.len;
@@ -1226,6 +1301,7 @@ ASTNode *parse_primary(ParserContext *ctx, Lexer *l)
                 {
                     zpanic("Expected identifier after ::");
                 }
+                ident_tok = suffix;
 
                 SelectiveImport *si =
                     (!ctx->current_module_prefix) ? find_selective_import(ctx, acc) : NULL;
@@ -1613,7 +1689,7 @@ ASTNode *parse_primary(ParserContext *ctx, Lexer *l)
                 }
             }
             node = ast_create(NODE_EXPR_CALL);
-            node->token = t; // Set source token
+            node->token = ident_tok; // Set source token
             ASTNode *callee = ast_create(NODE_EXPR_VAR);
             callee->var_ref.name = acc;
             node->call.callee = callee;
@@ -1700,13 +1776,14 @@ ASTNode *parse_primary(ParserContext *ctx, Lexer *l)
             }
 
             node = ast_create(NODE_EXPR_CALL);
-            node->token = t;
+            node->token = ident_tok;
             ASTNode *callee = ast_create(NODE_EXPR_VAR);
             callee->var_ref.name = acc;
             node->call.callee = callee;
             node->call.args = head;
             node->call.arg_names = has_named ? arg_names : NULL;
             node->call.arg_count = args_provided;
+            set_enum_variant_definition(ctx, node, acc);
             // Unknown return type - let codegen infer it
             node->resolved_type = xstrdup("unknown");
             // Fall through to Postfix
@@ -1714,7 +1791,7 @@ ASTNode *parse_primary(ParserContext *ctx, Lexer *l)
         else
         {
             node = ast_create(NODE_EXPR_VAR);
-            node->token = t; // Set source token
+            node->token = ident_tok; // Set source token
             node->var_ref.name = acc;
             node->type_info = find_symbol_type_info(ctx, acc);
 
@@ -1723,6 +1800,10 @@ ASTNode *parse_primary(ParserContext *ctx, Lexer *l)
             {
                 sym->is_used = 1;
                 node->definition_token = sym->decl_token;
+            }
+            else
+            {
+                set_enum_variant_definition(ctx, node, acc);
             }
 
             char *type_str = find_symbol_type(ctx, acc);
@@ -2653,6 +2734,8 @@ ASTNode *parse_expr_prec(ParserContext *ctx, Lexer *l, Precedence min_prec)
             node->member.target = lhs;
             node->member.field = token_strdup(field);
             node->member.is_pointer_access = 1;
+            node->token = field;
+            set_member_definition_token(ctx, node, lhs, node->member.field);
 
             node->type_info = get_field_type(ctx, lhs->type_info, node->member.field);
             if (node->type_info)
@@ -2682,6 +2765,8 @@ ASTNode *parse_expr_prec(ParserContext *ctx, Lexer *l, Precedence min_prec)
             node->member.target = lhs;
             node->member.field = token_strdup(field);
             node->member.is_pointer_access = 2;
+            node->token = field;
+            set_member_definition_token(ctx, node, lhs, node->member.field);
 
             node->type_info = get_field_type(ctx, lhs->type_info, node->member.field);
             if (node->type_info)
@@ -2972,6 +3057,8 @@ ASTNode *parse_expr_prec(ParserContext *ctx, Lexer *l, Precedence min_prec)
             node->member.target = lhs;
             node->member.field = token_strdup(field);
             node->member.is_pointer_access = 0;
+            node->token = field;
+            set_member_definition_token(ctx, node, lhs, node->member.field);
 
             if (lhs->type_info && lhs->type_info->kind == TYPE_POINTER)
             {
