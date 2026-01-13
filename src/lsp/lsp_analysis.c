@@ -133,24 +133,23 @@ void lsp_check_file(const char *uri, const char *json_src)
     }
 }
 
-void lsp_goto_definition(const char *uri, int line, int col)
+void lsp_goto_definition(const char *id, const char *uri, int line, int col)
 {
-    if (!g_index)
+    LSPRange *r = NULL;
+    if (g_index)
     {
-        return;
+        r = lsp_find_at(g_index, line, col);
     }
-
-    LSPRange *r = lsp_find_at(g_index, line, col);
     if (r && r->type == RANGE_REFERENCE)
     {
         // Found reference, return definition
         char resp[1024];
         sprintf(resp,
-                "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"uri\":\"%s\","
+                "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"uri\":\"%s\","
                 "\"range\":{\"start\":{"
                 "\"line\":%d,\"character\":%d},\"end\":{\"line\":%d,\"character\":%"
                 "d}}}}",
-                uri, r->def_line, r->def_col, r->def_line, r->def_col);
+                id, uri, r->def_line, r->def_col, r->def_line, r->def_col);
 
         fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(resp), resp);
         fflush(stdout);
@@ -160,11 +159,11 @@ void lsp_goto_definition(const char *uri, int line, int col)
         // Already at definition? Return itself.
         char resp[1024];
         sprintf(resp,
-                "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"uri\":\"%s\","
+                "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"uri\":\"%s\","
                 "\"range\":{\"start\":{"
                 "\"line\":%d,\"character\":%d},\"end\":{\"line\":%d,\"character\":%"
                 "d}}}}",
-                uri, r->start_line, r->start_col, r->end_line, r->end_col);
+                id, uri, r->start_line, r->start_col, r->end_line, r->end_col);
 
         fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(resp), resp);
         fflush(stdout);
@@ -172,21 +171,22 @@ void lsp_goto_definition(const char *uri, int line, int col)
     else
     {
         // Null result
-        const char *null_resp = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}";
+        char null_resp[256];
+        snprintf(null_resp, sizeof(null_resp), "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":null}",
+                 id);
         fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(null_resp), null_resp);
         fflush(stdout);
     }
 }
 
-void lsp_hover(const char *uri, int line, int col)
+void lsp_hover(const char *id, const char *uri, int line, int col)
 {
     (void)uri;
-    if (!g_index)
+    LSPRange *r = NULL;
+    if (g_index)
     {
-        return;
+        r = lsp_find_at(g_index, line, col);
     }
-
-    LSPRange *r = lsp_find_at(g_index, line, col);
     char *text = NULL;
 
     if (r)
@@ -210,10 +210,10 @@ void lsp_hover(const char *uri, int line, int col)
         char *json = malloc(16384);
         // content: { kind: markdown, value: text }
         sprintf(json,
-                "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"contents\":{\"kind\":"
+                "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"contents\":{\"kind\":"
                 "\"markdown\","
                 "\"value\":\"```c\\n%s\\n```\"}}}",
-                text);
+                id, text);
 
         fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(json), json);
         fflush(stdout);
@@ -221,17 +221,24 @@ void lsp_hover(const char *uri, int line, int col)
     }
     else
     {
-        const char *null_resp = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}";
+        char null_resp[256];
+        snprintf(null_resp, sizeof(null_resp), "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":null}",
+                 id);
         fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(null_resp), null_resp);
         fflush(stdout);
     }
 }
 
-void lsp_completion(const char *uri, int line, int col)
+void lsp_completion(const char *id, const char *uri, int line, int col)
 {
     (void)uri;
     if (!g_ctx)
     {
+        char null_resp[256];
+        snprintf(null_resp, sizeof(null_resp), "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":[]}",
+                 id);
+        fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(null_resp), null_resp);
+        fflush(stdout);
         return;
     }
 
@@ -316,7 +323,8 @@ void lsp_completion(const char *uri, int line, int col)
                             {
                                 char *json_fields = malloc(1024 * 1024);
                                 char *pj = json_fields;
-                                pj += sprintf(pj, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":[");
+                                pj += sprintf(pj, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":[",
+                                              id);
 
                                 int ffirst = 1;
                                 if (sd->node && sd->node->strct.fields)
@@ -355,7 +363,7 @@ void lsp_completion(const char *uri, int line, int col)
 
     char *json = xmalloc(1024 * 1024); // 1MB buffer.
     char *p = json;
-    p += sprintf(p, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":[");
+    p += sprintf(p, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":[", id);
 
     int first = 1;
 
