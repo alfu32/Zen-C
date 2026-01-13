@@ -19,6 +19,8 @@ typedef struct LSPRange
     RangeType type;
     int def_line;
     int def_col;
+    int def_end_line;
+    int def_end_col;
     char *hover_text;
     ASTNode *node;
     struct LSPRange *next;

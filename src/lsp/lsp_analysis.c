@@ -3,6 +3,7 @@
 #include "lsp_index.h"
 #include "parser.h"
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,46 @@ typedef struct
 
 static ParserContext *g_ctx = NULL;
 static char *g_last_src = NULL;
+
+static LSPRange *lsp_find_definition_at(LSPIndex *idx, int line, int col)
+{
+    if (!idx)
+    {
+        return NULL;
+    }
+
+    LSPRange *curr = idx->head;
+    LSPRange *best = NULL;
+    int best_len = INT_MAX;
+
+    while (curr)
+    {
+        if (curr->type == RANGE_DEFINITION && line >= curr->start_line && line <= curr->end_line)
+        {
+            if (line == curr->start_line && col < curr->start_col)
+            {
+                curr = curr->next;
+                continue;
+            }
+            if (line == curr->end_line && col > curr->end_col)
+            {
+                curr = curr->next;
+                continue;
+            }
+
+            int len = (curr->end_line - curr->start_line) * 100000 +
+                      (curr->end_col - curr->start_col);
+            if (len < best_len)
+            {
+                best_len = len;
+                best = curr;
+            }
+        }
+        curr = curr->next;
+    }
+
+    return best;
+}
 
 // Callback for parser errors.
 void lsp_on_error(void *data, Token t, const char *msg)
@@ -144,12 +185,19 @@ void lsp_goto_definition(const char *id, const char *uri, int line, int col)
     {
         // Found reference, return definition
         char resp[1024];
+        int end_line = r->def_end_line;
+        int end_col = r->def_end_col;
+        if (end_line <= 0 && end_col <= 0)
+        {
+            end_line = r->def_line;
+            end_col = r->def_col;
+        }
         sprintf(resp,
                 "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"uri\":\"%s\","
                 "\"range\":{\"start\":{"
                 "\"line\":%d,\"character\":%d},\"end\":{\"line\":%d,\"character\":%"
                 "d}}}}",
-                id, uri, r->def_line, r->def_col, r->def_line, r->def_col);
+                id, uri, r->def_line, r->def_col, end_line, end_col);
 
         fprintf(stderr, "zls: Responding (definition) id=%s\n", id);
         fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(resp), resp);
@@ -200,11 +248,11 @@ void lsp_hover(const char *id, const char *uri, int line, int col)
         }
         else if (r->type == RANGE_REFERENCE)
         {
-            LSPRange *def = lsp_find_at(g_index, r->def_line, r->def_col);
-            if (def && def->type == RANGE_DEFINITION)
-            {
-                text = def->hover_text;
-            }
+        LSPRange *def = lsp_find_definition_at(g_index, r->def_line, r->def_col);
+        if (def && def->type == RANGE_DEFINITION)
+        {
+            text = def->hover_text;
+        }
         }
     }
 

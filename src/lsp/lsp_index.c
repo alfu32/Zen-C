@@ -79,6 +79,8 @@ void lsp_index_add_ref(LSPIndex *idx, Token t, Token def_t, ASTNode *node)
 
     r->def_line = def_t.line - 1;
     r->def_col = def_t.col - 1;
+    r->def_end_line = def_t.line - 1;
+    r->def_end_col = def_t.col - 1 + def_t.len;
     r->node = node;
 
     lsp_index_add(idx, r);
@@ -181,6 +183,15 @@ void lsp_walk_node(LSPIndex *idx, ASTNode *node)
                 lsp_index_add_def(idx, variant->token, hover, variant);
             }
             variant = variant->next;
+        }
+    }
+    else if (node->type == NODE_TRAIT)
+    {
+        if (node->trait.name)
+        {
+            char hover[256];
+            snprintf(hover, sizeof(hover), "trait %s", node->trait.name);
+            lsp_index_add_def(idx, node->token, hover, node);
         }
     }
     else if (node->type == NODE_FUNCTION)

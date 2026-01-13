@@ -2830,6 +2830,7 @@ ASTNode *parse_trait(ParserContext *ctx, Lexer *l)
     }
 
     ASTNode *n_node = ast_create(NODE_TRAIT);
+    n_node->token = n;
     n_node->trait.name = name;
     n_node->trait.methods = methods;
     register_trait(name);
