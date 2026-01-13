@@ -27,6 +27,137 @@ typedef struct
 static ParserContext *g_ctx = NULL;
 static char *g_last_src = NULL;
 
+static int lsp_is_ident_char(int c)
+{
+    return isalnum(c) || c == '_';
+}
+
+static char *lsp_identifier_at(int line, int col)
+{
+    if (!g_last_src || line < 0 || col < 0)
+    {
+        return NULL;
+    }
+
+    const char *ptr = g_last_src;
+    int cur_line = 0;
+    while (*ptr && cur_line < line)
+    {
+        if (*ptr == '\n')
+        {
+            cur_line++;
+        }
+        ptr++;
+    }
+
+    if (cur_line != line || !*ptr)
+    {
+        return NULL;
+    }
+
+    const char *line_start = ptr;
+    const char *line_end = strchr(line_start, '\n');
+    if (!line_end)
+    {
+        line_end = line_start + strlen(line_start);
+    }
+
+    int line_len = (int)(line_end - line_start);
+    if (line_len <= 0)
+    {
+        return NULL;
+    }
+
+    if (col >= line_len)
+    {
+        col = line_len - 1;
+    }
+
+    if (!lsp_is_ident_char(line_start[col]))
+    {
+        if (col == 0 || !lsp_is_ident_char(line_start[col - 1]))
+        {
+            return NULL;
+        }
+        col -= 1;
+    }
+
+    int start = col;
+    while (start > 0 && lsp_is_ident_char(line_start[start - 1]))
+    {
+        start--;
+    }
+    int end = col;
+    while (end < line_len && lsp_is_ident_char(line_start[end]))
+    {
+        end++;
+    }
+
+    int len = end - start;
+    if (len <= 0)
+    {
+        return NULL;
+    }
+
+    char *name = xmalloc(len + 1);
+    memcpy(name, line_start + start, len);
+    name[len] = 0;
+    return name;
+}
+
+static const char *lsp_def_name_for_node(ASTNode *node)
+{
+    if (!node)
+    {
+        return NULL;
+    }
+
+    switch (node->type)
+    {
+    case NODE_FUNCTION:
+        return node->func.name;
+    case NODE_VAR_DECL:
+    case NODE_CONST:
+        return node->var_decl.name;
+    case NODE_STRUCT:
+        return node->strct.name;
+    case NODE_ENUM:
+        return node->enm.name;
+    case NODE_ENUM_VARIANT:
+        return node->variant.name;
+    case NODE_FIELD:
+        return node->field.name;
+    case NODE_TRAIT:
+        return node->trait.name;
+    default:
+        return NULL;
+    }
+}
+
+static LSPRange *lsp_find_definition_by_name(LSPIndex *idx, const char *name)
+{
+    if (!idx || !name)
+    {
+        return NULL;
+    }
+
+    LSPRange *curr = idx->head;
+    while (curr)
+    {
+        if (curr->type == RANGE_DEFINITION)
+        {
+            const char *def_name = lsp_def_name_for_node(curr->node);
+            if (def_name && strcmp(def_name, name) == 0)
+            {
+                return curr;
+            }
+        }
+        curr = curr->next;
+    }
+
+    return NULL;
+}
+
 static LSPRange *lsp_find_definition_at(LSPIndex *idx, int line, int col)
 {
     if (!idx)
@@ -220,6 +351,31 @@ void lsp_goto_definition(const char *id, const char *uri, int line, int col)
     }
     else
     {
+        LSPRange *by_name = NULL;
+        char *name = lsp_identifier_at(line, col);
+        if (name)
+        {
+            by_name = lsp_find_definition_by_name(g_index, name);
+            free(name);
+        }
+
+        if (by_name)
+        {
+            char resp[1024];
+            sprintf(resp,
+                    "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"uri\":\"%s\","
+                    "\"range\":{\"start\":{"
+                    "\"line\":%d,\"character\":%d},\"end\":{\"line\":%d,\"character\":%"
+                    "d}}}}",
+                    id, uri, by_name->start_line, by_name->start_col, by_name->end_line,
+                    by_name->end_col);
+
+            fprintf(stderr, "zls: Responding (definition) id=%s\n", id);
+            fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(resp), resp);
+            fflush(stdout);
+            return;
+        }
+
         // Null result
         char null_resp[256];
         snprintf(null_resp, sizeof(null_resp), "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":null}",
@@ -248,11 +404,24 @@ void lsp_hover(const char *id, const char *uri, int line, int col)
         }
         else if (r->type == RANGE_REFERENCE)
         {
-        LSPRange *def = lsp_find_definition_at(g_index, r->def_line, r->def_col);
-        if (def && def->type == RANGE_DEFINITION)
-        {
-            text = def->hover_text;
+            LSPRange *def = lsp_find_definition_at(g_index, r->def_line, r->def_col);
+            if (def && def->type == RANGE_DEFINITION)
+            {
+                text = def->hover_text;
+            }
         }
+    }
+    if (!text)
+    {
+        char *name = lsp_identifier_at(line, col);
+        if (name)
+        {
+            LSPRange *def = lsp_find_definition_by_name(g_index, name);
+            if (def)
+            {
+                text = def->hover_text;
+            }
+            free(name);
         }
     }
 
