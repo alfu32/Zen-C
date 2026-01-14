@@ -446,7 +446,7 @@ void lsp_check_file(const char *uri, const char *json_src)
     g_last_src = strdup(json_src);
 
     Lexer l;
-    lexer_init(&l, json_src);
+    lexer_init(&l, g_last_src);
 
     const char *saved_fn = g_current_filename;
     char *file_path = lsp_uri_to_path(uri);
