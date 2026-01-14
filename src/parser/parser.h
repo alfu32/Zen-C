@@ -253,6 +253,8 @@ struct ParserContext
     int is_fault_tolerant;
     void *error_callback_data;
     void (*on_error)(void *data, Token t, const char *msg);
+    void *semantic_error_callback_data;
+    void (*on_semantic_error)(void *data, Token t, const char *msg);
 
     // LSP: Flat symbol list (persists after parsing for LSP queries)
     Symbol *all_symbols;

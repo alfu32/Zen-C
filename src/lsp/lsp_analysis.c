@@ -2,6 +2,7 @@
 #include "json_rpc.h"
 #include "lsp_index.h"
 #include "parser.h"
+#include "typecheck.h"
 #include <ctype.h>
 #include <limits.h>
 #include <stdio.h>
@@ -26,6 +27,38 @@ typedef struct
 
 static ParserContext *g_ctx = NULL;
 static char *g_last_src = NULL;
+
+static void lsp_append_diagnostic(DiagnosticList *list, Token t, const char *msg,
+                                  const char *prefix)
+{
+    Diagnostic *d = xmalloc(sizeof(Diagnostic));
+    d->line = t.line > 0 ? t.line - 1 : 0;
+    d->col = t.col > 0 ? t.col - 1 : 0;
+    if (prefix && *prefix)
+    {
+        size_t prefix_len = strlen(prefix);
+        size_t msg_len = strlen(msg);
+        d->message = xmalloc(prefix_len + msg_len + 1);
+        memcpy(d->message, prefix, prefix_len);
+        memcpy(d->message + prefix_len, msg, msg_len + 1);
+    }
+    else
+    {
+        d->message = xstrdup(msg);
+    }
+    d->next = NULL;
+
+    if (!list->head)
+    {
+        list->head = d;
+        list->tail = d;
+    }
+    else
+    {
+        list->tail->next = d;
+        list->tail = d;
+    }
+}
 
 static int lsp_is_ident_char(int c)
 {
@@ -202,22 +235,13 @@ static LSPRange *lsp_find_definition_at(LSPIndex *idx, int line, int col)
 void lsp_on_error(void *data, Token t, const char *msg)
 {
     DiagnosticList *list = (DiagnosticList *)data;
-    Diagnostic *d = xmalloc(sizeof(Diagnostic));
-    d->line = t.line > 0 ? t.line - 1 : 0;
-    d->col = t.col > 0 ? t.col - 1 : 0;
-    d->message = xstrdup(msg);
-    d->next = NULL;
+    lsp_append_diagnostic(list, t, msg, NULL);
+}
 
-    if (!list->head)
-    {
-        list->head = d;
-        list->tail = d;
-    }
-    else
-    {
-        list->tail->next = d;
-        list->tail = d;
-    }
+void lsp_on_semantic_error(void *data, Token t, const char *msg)
+{
+    DiagnosticList *list = (DiagnosticList *)data;
+    lsp_append_diagnostic(list, t, msg, "Type error: ");
 }
 
 void lsp_check_file(const char *uri, const char *json_src)
@@ -234,6 +258,8 @@ void lsp_check_file(const char *uri, const char *json_src)
     DiagnosticList diagnostics = {0};
     g_ctx->error_callback_data = &diagnostics;
     g_ctx->on_error = lsp_on_error;
+    g_ctx->semantic_error_callback_data = &diagnostics;
+    g_ctx->on_semantic_error = lsp_on_semantic_error;
 
     // Prepare Lexer.
     // Cache source.
@@ -256,6 +282,7 @@ void lsp_check_file(const char *uri, const char *json_src)
     if (root)
     {
         lsp_build_index(g_index, root);
+        check_program(g_ctx, root);
     }
 
     // Construct JSON Response (notification)

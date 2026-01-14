@@ -8,7 +8,14 @@
 
 static void tc_error(TypeChecker *tc, Token t, const char *msg)
 {
-    fprintf(stderr, "Type Error at %s:%d:%d: %s\n", g_current_filename, t.line, t.col, msg);
+    if (tc->pctx && tc->pctx->on_semantic_error)
+    {
+        tc->pctx->on_semantic_error(tc->pctx->semantic_error_callback_data, t, msg);
+    }
+    else
+    {
+        fprintf(stderr, "Type Error at %s:%d:%d: %s\n", g_current_filename, t.line, t.col, msg);
+    }
     tc->error_count++;
 }
 
@@ -266,14 +273,23 @@ int check_program(ParserContext *ctx, ASTNode *root)
     TypeChecker tc = {0};
     tc.pctx = ctx;
 
-    printf("[TypeCheck] Starting semantic analysis...\n");
+    if (!ctx || !ctx->on_semantic_error)
+    {
+        printf("[TypeCheck] Starting semantic analysis...\n");
+    }
     check_node(&tc, root);
 
     if (tc.error_count > 0)
     {
-        printf("[TypeCheck] Found %d errors.\n", tc.error_count);
+        if (!ctx || !ctx->on_semantic_error)
+        {
+            printf("[TypeCheck] Found %d errors.\n", tc.error_count);
+        }
         return 1;
     }
-    printf("[TypeCheck] Passed.\n");
+    if (!ctx || !ctx->on_semantic_error)
+    {
+        printf("[TypeCheck] Passed.\n");
+    }
     return 0;
 }
