@@ -3,11 +3,14 @@
 #include "lsp_index.h"
 #include "parser.h"
 #include "typecheck.h"
+#include "zprep.h"
 #include <ctype.h>
+#include <dirent.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static LSPIndex *g_index = NULL;
 
@@ -27,6 +30,128 @@ typedef struct
 
 static ParserContext *g_ctx = NULL;
 static char *g_last_src = NULL;
+
+static char *lsp_uri_to_path(const char *uri)
+{
+    if (!uri)
+    {
+        return NULL;
+    }
+    if (strncmp(uri, "file://", 7) != 0)
+    {
+        return xstrdup(uri);
+    }
+
+    const char *src = uri + 7;
+    char *out = xmalloc(strlen(src) + 1);
+    char *dst = out;
+
+    while (*src)
+    {
+        if (*src == '%' && isxdigit((unsigned char)src[1]) &&
+            isxdigit((unsigned char)src[2]))
+        {
+            char hex[3] = {src[1], src[2], 0};
+            *dst++ = (char)strtol(hex, NULL, 16);
+            src += 3;
+            continue;
+        }
+        *dst++ = *src++;
+    }
+    *dst = 0;
+    return out;
+}
+
+static void lsp_on_std_error(void *data, Token t, const char *msg)
+{
+    (void)data;
+    (void)t;
+    (void)msg;
+}
+
+static char *lsp_find_std_dir(void)
+{
+    const char *root = getenv("ZC_ROOT");
+    if (root && *root)
+    {
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/std", root);
+        if (access(path, R_OK) == 0)
+        {
+            return xstrdup(path);
+        }
+    }
+
+    if (access("/usr/local/share/zenc/std", R_OK) == 0)
+    {
+        return xstrdup("/usr/local/share/zenc/std");
+    }
+    if (access("/usr/share/zenc/std", R_OK) == 0)
+    {
+        return xstrdup("/usr/share/zenc/std");
+    }
+
+    return NULL;
+}
+
+static void lsp_load_stdlib(ParserContext *ctx)
+{
+    if (!ctx)
+    {
+        return;
+    }
+
+    char *std_dir = lsp_find_std_dir();
+    if (!std_dir)
+    {
+        return;
+    }
+
+    DIR *dir = opendir(std_dir);
+    if (!dir)
+    {
+        free(std_dir);
+        return;
+    }
+
+    void (*prev_on_error)(void *, Token, const char *) = ctx->on_error;
+    void *prev_error_data = ctx->error_callback_data;
+    ctx->on_error = lsp_on_std_error;
+    ctx->error_callback_data = NULL;
+
+    const char *saved_fn = g_current_filename;
+    struct dirent *ent = NULL;
+    while ((ent = readdir(dir)) != NULL)
+    {
+        const char *name = ent->d_name;
+        size_t len = strlen(name);
+        if (len < 4 || strcmp(name + len - 3, ".zc") != 0)
+        {
+            continue;
+        }
+
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/%s", std_dir, name);
+        char *src = load_file(path);
+        if (!src)
+        {
+            continue;
+        }
+
+        Lexer l;
+        lexer_init(&l, src);
+        g_current_filename = path;
+        parse_program_nodes(ctx, &l);
+        free(src);
+    }
+
+    g_current_filename = (char *)saved_fn;
+    ctx->on_error = prev_on_error;
+    ctx->error_callback_data = prev_error_data;
+
+    closedir(dir);
+    free(std_dir);
+}
 
 static void lsp_append_diagnostic(DiagnosticList *list, Token t, const char *msg,
                                   const char *prefix)
@@ -231,6 +356,57 @@ static LSPRange *lsp_find_definition_at(LSPIndex *idx, int line, int col)
     return best;
 }
 
+static char *lsp_hover_from_context(const char *name)
+{
+    if (!g_ctx || !name)
+    {
+        return NULL;
+    }
+
+    FuncSig *sig = find_func(g_ctx, name);
+    if (sig)
+    {
+        char *buf = xmalloc(strlen(name) + 16);
+        snprintf(buf, strlen(name) + 16, "fn %s(...)", name);
+        return buf;
+    }
+
+    ASTNode *def = find_struct_def(g_ctx, name);
+    if (def)
+    {
+        if (def->type == NODE_ENUM)
+        {
+            char *buf = xmalloc(strlen(name) + 16);
+            snprintf(buf, strlen(name) + 16, "enum %s", name);
+            return buf;
+        }
+        if (def->type == NODE_STRUCT)
+        {
+            char *buf = xmalloc(strlen(name) + 16);
+            snprintf(buf, strlen(name) + 16, "struct %s", name);
+            return buf;
+        }
+    }
+
+    EnumVariantReg *variant = find_enum_variant(g_ctx, name);
+    if (variant)
+    {
+        size_t len = strlen(variant->enum_name) + strlen(variant->variant_name) + 10;
+        char *buf = xmalloc(len);
+        snprintf(buf, len, "enum %s::%s", variant->enum_name, variant->variant_name);
+        return buf;
+    }
+
+    if (is_trait(name))
+    {
+        char *buf = xmalloc(strlen(name) + 16);
+        snprintf(buf, strlen(name) + 16, "trait %s", name);
+        return buf;
+    }
+
+    return NULL;
+}
+
 // Callback for parser errors.
 void lsp_on_error(void *data, Token t, const char *msg)
 {
@@ -272,6 +448,13 @@ void lsp_check_file(const char *uri, const char *json_src)
     Lexer l;
     lexer_init(&l, json_src);
 
+    const char *saved_fn = g_current_filename;
+    char *file_path = lsp_uri_to_path(uri);
+    if (file_path)
+    {
+        g_current_filename = file_path;
+    }
+
     ASTNode *root = parse_program(g_ctx, &l);
 
     if (g_index)
@@ -281,8 +464,17 @@ void lsp_check_file(const char *uri, const char *json_src)
     g_index = lsp_index_new();
     if (root)
     {
+        lsp_index_set_source(g_index, g_last_src);
         lsp_build_index(g_index, root);
         check_program(g_ctx, root);
+    }
+
+    lsp_load_stdlib(g_ctx);
+
+    g_current_filename = (char *)saved_fn;
+    if (file_path)
+    {
+        free(file_path);
     }
 
     // Construct JSON Response (notification)
@@ -421,7 +613,8 @@ void lsp_hover(const char *id, const char *uri, int line, int col)
     {
         r = lsp_find_at(g_index, line, col);
     }
-    char *text = NULL;
+    const char *text = NULL;
+    char *owned_text = NULL;
 
     if (r)
     {
@@ -448,6 +641,11 @@ void lsp_hover(const char *id, const char *uri, int line, int col)
             {
                 text = def->hover_text;
             }
+            else
+            {
+                owned_text = lsp_hover_from_context(name);
+                text = owned_text;
+            }
             free(name);
         }
     }
@@ -466,6 +664,10 @@ void lsp_hover(const char *id, const char *uri, int line, int col)
         fprintf(stdout, "Content-Length: %ld\r\n\r\n%s", strlen(json), json);
         fflush(stdout);
         free(json);
+        if (owned_text)
+        {
+            free(owned_text);
+        }
     }
     else
     {

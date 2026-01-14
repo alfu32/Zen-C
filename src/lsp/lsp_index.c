@@ -29,6 +29,16 @@ void lsp_index_free(LSPIndex *idx)
     free(idx);
 }
 
+void lsp_index_set_source(LSPIndex *idx, const char *src)
+{
+    if (!idx)
+    {
+        return;
+    }
+    idx->source_start = src;
+    idx->source_len = src ? strlen(src) : 0;
+}
+
 void lsp_index_add(LSPIndex *idx, LSPRange *r)
 {
     if (!idx->head)
@@ -43,9 +53,24 @@ void lsp_index_add(LSPIndex *idx, LSPRange *r)
     }
 }
 
+static int lsp_token_in_source(LSPIndex *idx, Token t)
+{
+    if (!idx || !idx->source_start || !t.start)
+    {
+        return 1;
+    }
+    const char *start = idx->source_start;
+    const char *end = start + idx->source_len;
+    return t.start >= start && t.start < end;
+}
+
 void lsp_index_add_def(LSPIndex *idx, Token t, const char *hover, ASTNode *node)
 {
     if (t.line <= 0)
+    {
+        return;
+    }
+    if (!lsp_token_in_source(idx, t))
     {
         return;
     }
@@ -67,6 +92,14 @@ void lsp_index_add_def(LSPIndex *idx, Token t, const char *hover, ASTNode *node)
 void lsp_index_add_ref(LSPIndex *idx, Token t, Token def_t, ASTNode *node)
 {
     if (t.line <= 0 || def_t.line <= 0)
+    {
+        return;
+    }
+    if (!lsp_token_in_source(idx, t))
+    {
+        return;
+    }
+    if (!lsp_token_in_source(idx, def_t))
     {
         return;
     }
